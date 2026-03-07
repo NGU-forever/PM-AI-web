@@ -1,6 +1,3 @@
----
-
-```markdown
 # 🤖 AI Customer Service & CRM System
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
@@ -19,8 +16,6 @@
 - [项目目录结构](#-项目目录结构)
 - [开发路线图 (Roadmap)](#-开发路线图-roadmap)
 - [风险与兜底策略](#-风险与兜底策略)
-
----
 
 ## 🏗 架构概览
 
@@ -162,13 +157,3 @@ project_root/
 
 * 🔴 **潜在客户漏判或误判**
 * **兜底:** 允许用户主动点击界面上的“联系商务”物理按钮，直接绕过 AI 评分建立高优先级工单。
-
-
-
-```
-
-***
-
-这份 README 已经为你搭建好了门面。接下来，你是想让我先为你输出 **PostgreSQL (pgvector) 的数据库表结构定义（SQLAlchemy 模型代码）**，还是直接进入 **FastAPI 的多 Agent 路由代码** 的编写？
-
-```
