@@ -1,4 +1,4 @@
-# 🤖 AI Customer Service & CRM System
+# 🤖 AI Sales & CRM System (Auto Lead Generation)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688)
@@ -7,51 +7,53 @@
 ![pgvector](https://img.shields.io/badge/pgvector-Supported-blue)
 ![Redis](https://img.shields.io/badge/Redis-7.0-DC382D)
 
-本项目是一个具备销售线索挖掘（Lead Generation）功能的 AI 客服与 CRM 整合系统。采用 **FastAPI + PostgreSQL (pgvector) + Redis + React (Vite)** 的现代化 AI 应用技术栈，兼顾开发效率与 AI 向量检索的高并发需求。
+本项目是一个由 AI 全自动驱动的销售线索挖掘与 CRM 管理系统。采用 **FastAPI + PostgreSQL (pgvector) + Redis + React (Vite)** 技术栈。系统主要由 **全能 AI 客服** 负责面向 C 端访客的接待与信息收集，自动将访客转化为高价值客户（Clients），供 B 端管理员（Admin）在后台统一管理与异步跟进。
 
 ## 📑 目录
-- [架构概览](#-架构概览)
-- [技术栈详情](#-技术栈详情)
+- [业务角色与架构](#-业务角色与架构)
 - [核心业务逻辑](#-核心业务逻辑)
 - [项目目录结构](#-项目目录结构)
 - [开发路线图 (Roadmap)](#-开发路线图-roadmap)
-- [风险与兜底策略](#-风险与兜底策略)
 
-## 🏗 架构概览
+---
 
-本系统采用前后端分离架构，结合大语言模型 (LLM) 和多 Agent 协同流转机制。
+## 🏗 业务角色与架构
+
+系统精简为两大核心真实角色与一个 AI 角色：
+1. **AI 客服 (The AI):** 系统的“前台业务员”，全天候通过 WebSocket 流式对话与访客交互，负责解答疑问（RAG）并主动收集客户联系方式与意向。
+2. **潜在客户 (Clients):** C端访客。最初为匿名状态（基于 Session），在与 AI 聊天过程中被 AI 提取出关键信息（如姓名、需求、联系方式）后，系统自动在数据库中为其创建客户档案。
+3. **管理员 (Admin):** 系统的所有者。通过 JWT 登录后，在后台查看 AI 收集到的客户列表、动态画像、线索评分，并维护 AI 的专属知识库。
 
 ```mermaid
 graph TD
     subgraph 前端展示层
-        A[C端: 智能客服 Widget <br> React + WebSockets]
-        B[B端: CRM 工作台 <br> React + SSE]
+        A[C端: 智能聊天 Widget <br> React + WebSockets]
+        B[B端: Admin CRM 后台 <br> React + JWT 鉴权]
     end
 
     subgraph 后端服务层 FastAPI
-        C[API Gateway & WebSocket]
-        D[Router Agent <br> 意图识别中心]
-        E[基础问答 Agent <br> RAG]
-        F[线索分析 Agent <br> Lead Gen]
-        G[人工客服路由 <br> Human-in-loop]
-        H[异步任务 <br> Background Tasks]
+        C[API Gateway / WS Server]
+        D[Router Agent <br> 意图大脑]
+        E[QA Agent <br> RAG 知识问答]
+        F[Lead Gen Agent <br> 信息收集与引导]
+        G[后台异步任务 <br> 档案创建/画像提取]
     end
 
     subgraph 数据存储层
-        I[(PostgreSQL <br> 业务数据 + JSONB 画像)]
-        J[(pgvector <br> RAG 知识库向量)]
-        K[(Redis <br> 会话缓存 / Pub-Sub)]
+        H[(PostgreSQL <br> Admin账户 / 自动收集的Client档案)]
+        I[(pgvector <br> RAG 知识库向量)]
+        J[(Redis <br> 访客会话状态缓存)]
     end
 
-    A <-->|流式输出| C
-    B <-->|状态监控| C
+    A <-->|临时 Session 交互| C
+    B <-->|管理 API 请求| C
     C --> D
-    D -->|售后/通用| E
-    D -->|询价/留资| F
-    D -->|接管阈值| G
-    E <-->|检索增强| J
-    H -->|提取特征| I
-    C <-->|上下文记忆| K
+    D -->|常规提问| E
+    D -->|意向触发/留资| F
+    E <-->|检索增强| I
+    F -->|提取实体信息| G
+    G -->|持久化沉淀| H
+    C <-->|上下文记忆| J
 
 ```
 
@@ -78,70 +80,56 @@ graph TD
 * **会话管理:** 存储活跃对话上下文（Context Memory）。
 * **Pub/Sub:** 实现 AI 触发人工转接时，向在线客服推送实时通知。
 
-
-
 ---
 
 ## 🧠 核心业务逻辑
 
-### 1. 多 Agent 协同与人工路由
+### 1. 全自动线索收集与建档 (Auto Lead Generation)
 
-* **意图识别 Router Agent:** 充当入口，分析用户输入并进行分类。
-* **流转机制:**
-* `售后咨询` ➔ 路由至 **基础问答 Agent**（查询 pgvector 知识库）。
-* `产品询价/高意向` ➔ 路由至 **线索分析 Agent**（引导留资）。
-* `触发敏感词 / 连续未解决 / 要求人工` ➔ 触发 **人工路由模块**，通过 Redis Pub/Sub 通知 B 端客服面板接管。
+* **无感知采集:** 当 C 端访客进入聊天时，Redis 分配临时 Session。
+* **信息抽取 (NER):** 在对话过程中，`Lead Gen Agent` 会刻意引导用户。一旦用户在对话中透露了关键信息（如：“我是做跨境电商的，电话是 138xxxx”），大模型会在后台利用结构化输出（JSON 格式）提取出标签：`{"industry": "跨境电商", "phone": "138xxxx"}`。
+* **自动建档:** FastAPI 接收到提取的数据后，自动在 PostgreSQL 的 `clients` 表中插入或更新该记录，完成从“匿名访客”到“在库客户”的转换。
 
+### 2. 动态画像 (Persona) 与 RAG
 
+* **画像更新:** 对话结束后，后台任务总结对话内容，将用户的偏好、预算等特征提炼为标签，存入 `clients` 表的 `JSONB` 字段。
+* **个性化接待:** 当同一访客（通过 Cookie 或本地缓存识别）再次访问时，系统会调取其 JSONB 画像，结合 pgvector 检索到的知识，让 AI 提供极其个性化的问候和解答（例如：“您好，上次您咨询的A型号产品目前有新折扣了”）。
 
-### 2. 动态画像 (Persona) 与 个性化 RAG
+### 3. AI 兜底与异步工单 (Ticket System)
 
-* **画像构建 (异步):** 会话结束后，后台触发 LLM 提炼对话标签（如：*预算充足、关注隐私*），更新至 PostgreSQL 的 JSONB 字段。
-* **个性化回复:** 再次提问时，系统组合 `[用户问题] + [检索知识] + [画像标签]` 作为 Prompt 发送给 LLM，实现定制化语气与策略。
+* 由于没有人工客服实时接管，当 AI 遇到无法解决的问题（如命中敏感词、知识库检索不到且用户情绪暴躁）时，AI 会执行**安抚与工单生成**策略。
+* **AI 话术:** “非常抱歉，这个问题超出了我的权限。我已经将您的诉求加急记录，我们的专属客户经理会在 2 小时内通过电话联系您。”
+* **后台动作:** 系统将该对话标记为 `Urgent Ticket`，并在 Admin 的 CRM 大盘中高亮置顶，等待 Admin 异步处理。
 
-### 3. 线索打分 (Lead Scoring) 体系
+### 4. Admin 权限管控
 
-采用混合打分机制（Rule-based + LLM）：
-
-* **静态行为:** 访问定价页 (+10分)，注册 (+20分)，留资 (+50分)。
-* **动态对话:** LLM 评估对话意图（如询问批量折扣给 +30分）。
-* **触发边界:** 总分 `> 80分` 变更为 **Hot Lead**，在 CRM 面板标红并强制提醒销售介入。
+* 整个系统的 API 均对 C 端开放极其有限的权限（仅限聊天）。
+* B 端所有接口（查看客户、修改知识库等）均由 FastAPI 的 `Depends` 依赖注入拦截，要求请求头携带合法的 Admin JWT Token。
 
 ---
 
 ## 📂 项目目录结构
 
-采用领域驱动设计 (DDD) 的模块化结构：
-
 ```text
 project_root/
-├── frontend/                  # React + Vite 前端代码 (C端 & B端)
+├── frontend/                  # React + Vite 前端
+│   ├── chat-widget/           # 提供给 C 端的无鉴权聊天组件
+│   └── admin-dashboard/       # 提供给 Admin 的强鉴权后台系统
 ├── backend/                   # FastAPI 后端核心
 │   ├── app/
-│   │   ├── api/               # 路由定义 (WebSockets, HTTP REST)
-│   │   ├── core/              # 核心配置 (Config, DB/Redis连接)
-│   │   ├── models/            # SQLAlchemy 数据模型 (含 pgvector)
-│   │   ├── schemas/           # Pydantic 验证模型 (Request/Response)
-│   │   ├── services/          # 业务逻辑服务
-│   │   │   ├── agents/        # 多 Agent 逻辑 (Router, QA, LeadGen)
-│   │   │   ├── rag/           # 向量化、检索逻辑
-│   │   │   └── scoring/       # 线索打分算法
+│   │   ├── api/               # API 路由
+│   │   │   ├── admin.py       # 管理员专属接口 (需 JWT)
+│   │   │   ├── chat.py        # C 端 WebSocket 聊天接口
+│   │   │   └── auth.py        # Admin 登录颁发 Token 接口
+│   │   ├── models/            # SQLAlchemy 数据模型 (Admin, Client, Vector)
+│   │   ├── services/          # 业务逻辑
+│   │   │   ├── agents/        # Router, QA, LeadGen
+│   │   │   └── extraction/    # 利用 LLM 提取客户信息的逻辑
 │   │   └── main.py            # FastAPI 启动入口
-│   ├── requirements.txt
-│   └── docker-compose.yml     # 容器化编排 (Postgres+pgvector, Redis)
+│   └── docker-compose.yml     
 └── README.md
 
 ```
-
----
-
-## 🗺 开发路线图 (Roadmap)
-
-| 阶段 | 周期 | 目标 | 核心功能 |
-| --- | --- | --- | --- |
-| **Phase 1** | 第1-2周 | **核心闭环 (MVP)** | 跑通 FastAPI + WebSocket；完成文档向量化与 pgvector 入库；实现基础 RAG 问答 Agent。 |
-| **Phase 2** | 第3-4周 | **智能路由与线索** | 引入 Router Agent 意图识别；建立基础线索打分逻辑；完成 Redis 上下文会话缓存。 |
-| **Phase 3** | 第5-6周 | **客服工作台与画像** | 开发 React CRM 前端；打通 Redis Pub/Sub 人工接管机制；实现异步画像提取与数据库写入。 |
 
 ---
 
